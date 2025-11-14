@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mint NFT - Frame</title>
+  <style>
+    body{font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#0b1020;color:#e6eef8}
+    .card{width:100%;max-width:760px;padding:24px;border-radius:12px;background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));box-shadow:0 6px 24px rgba(2,6,23,0.6);}
+    h1{margin:0 0 8px;font-size:20px}
+    p{margin:0 0 16px;color:#bcd3ffcc}
+    .row{display:flex;gap:8px;align-items:center;margin-bottom:12px}
+    input,select,button{padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit;font-size:14px}
+    input[type=number]{width:120px}
+    button.primary{background:linear-gradient(90deg,#6c5ce7,#00b4d8);border:none;color:#041022;font-weight:600}
+    .muted{color:#9fb6ff88;font-size:13px}
+    pre{background:#021026;padding:12px;border-radius:8px;overflow:auto;color:#bfe6ff;font-size:13px}
+    .footer{margin-top:16px;font-size:13px;color:#9fb6ff88}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Mint NFT — Frame</h1>
+    <p class="muted">Frame ini siap dipakai sebagai halaman mint sederhana. Sambungkan wallet, set jumlah, lalu tekan <strong>Mint</strong>.</p>
+
+    <!-- ★★★ PENTING: Edit variabel di bawah sesuai kontrak & jaringan kalian sebelum upload ★★★ -->
+    <pre id="config" style="display:none;">
+// CONFIG: sesuaikan sebelum publish
+const CONTRACT_ADDRESS = "0xCONTRACT_ADDRESS_HERE";
+const CHAIN_ID = 1; // 1 = Ethereum Mainnet, 137 = Polygon, 5 = Goerli, dsb
+const MINT_PRICE_ETH = "0.05"; // harga per mint (jika payable); gunakan string (ETH)
+const MINT_FUNCTION = "mint"; // nama fungsi di kontrak (default: mint)
+const MINT_ARGS_COUNT = 0; // berapa arg non-payable yang butuhkan fungsi (0 jika tidak ada)
+    </pre>
+
+    <div class="row">
+      <button id="connectBtn">Connect Wallet</button>
+      <div id="addr" class="muted">Not connected</div>
+    </div>
+
+    <div class="row">
+      <label for="qty" class="muted">Quantity</label>
+      <input id="qty" type="number" min="1" value="1" />
+      <label class="muted">Price/Unit (ETH)</label>
+      <input id="price" type="text" value="0.05" />
+    </div>
+
+    <div class="row">
+      <button id="mintBtn" class="primary">Mint</button>
+      <div id="status" class="muted">Ready</div>
+    </div>
+
+    <div class="row">
+      <label class="muted">Transaction</label>
+      <a id="txlink" href="#" target="_blank" style="color:#9fe8ff;text-decoration:none">—</a>
+    </div>
+
+    <div class="footer">
+      Petunjuk singkat: Edit konfigurasi kontrak di file HTML (lihat bagian CONFIG). Setelah itu upload ke hosting (GitHub Pages) lalu share URL sebagai Frame di Farcaster.
+    </div>
+  </div>
+
+  <!-- Ethers v5 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+  <script>
+    // Default config (edit di file sebelum publish)
+    const CONTRACT_ADDRESS = "0xCONTRACT_ADDRESS_HERE";
+    const CHAIN_ID = 1;
+    const MINT_PRICE_ETH_DEFAULT = "0.05";
+    const MINT_FUNCTION = "mint";
+    const MINT_ARGS_COUNT = 0;
+
+    const connectBtn = document.getElementById('connectBtn');
+    const addrEl = document.getElementById('addr');
+    const mintBtn = document.getElementById('mintBtn');
+    const statusEl = document.getElementById('status');
+    const txlink = document.getElementById('txlink');
+    const qtyInput = document.getElementById('qty');
+    const priceInput = document.getElementById('price');
+
+    let provider;
+    let signer;
+
+    async function connect() {
+      if (!window.ethereum) {
+        alert('No Web3 wallet found. Gunakan MetaMask, WalletConnect enabled browser, dsb.');
+        return;
+      }
+      try {
+        await window.ethereum.request({ method: 'eth_requestAccounts' });
+        provider = new ethers.providers.Web3Provider(window.ethereum);
+        signer = provider.getSigner();
+        const network = await provider.getNetwork();
+        addrEl.textContent = await signer.getAddress();
+        connectBtn.textContent = 'Connected';
+        statusEl.textContent = 'Wallet connected (chain ' + network.chainId + ')';
+      } catch (e) {
+        console.error(e);
+        statusEl.textContent = 'Connection failed';
+      }
+    }
+
+    async function mint() {
+      try {
+        if (!signer) { statusEl.textContent = 'Connect your wallet first'; return; }
+        // simple validation
+        const qty = parseInt(qtyInput.value) || 1;
+        const pricePerUnit = priceInput.value || MINT_PRICE_ETH_DEFAULT;
+        const totalEth = (parseFloat(pricePerUnit) * qty).toString();
+
+        statusEl.textContent = 'Preparing transaction...';
+
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, [
+          // Minimal ABI: try to call function mint() payable or not
+          "function " + MINT_FUNCTION + "(" + (MINT_ARGS_COUNT>0 ? "uint256 _q" : "") + ") payable"
+        ], signer);
+
+        let tx;
+        if (MINT_ARGS_COUNT>0) {
+          // call with quantity arg + value
+          tx = await contract[MINT_FUNCTION](qty, { value: ethers.utils.parseEther(totalEth) });
+        } else {
+          // call without args; some contracts expect mint(q) but user didn't set MINT_ARGS_COUNT
+          // We try to call with quantity if function signature includes it; else call without args
+          try {
+            tx = await contract[MINT_FUNCTION](qty, { value: ethers.utils.parseEther(totalEth) });
+          } catch (e) {
+            // fallback to no-arg call
+            tx = await contract[MINT_FUNCTION]({ value: ethers.utils.parseEther(totalEth) });
+          }
+        }
+
+        statusEl.textContent = 'Pending... tx sent';
+        txlink.href = (window.location.hostname.includes('localhost') ? 'https://etherscan.io/tx/' : (getExplorerUrl() + '/tx/' + tx.hash));
+        txlink.textContent = shorten(tx.hash);
+        await tx.wait();
+        statusEl.textContent = 'Mint confirmed 🎉';
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = 'Error: ' + (err.message || err.toString());
+      }
+    }
+
+    function shorten(hash) {
+      if (!hash) return '—';
+      return hash.slice(0,6) + '...' + hash.slice(-4);
+    }
+
+    function getExplorerUrl() {
+      // basic guess by chain id
+      switch (CHAIN_ID) {
+        case 1: return 'https://etherscan.io';
+        case 5: return 'https://goerli.etherscan.io';
+        case 137: return 'https://polygonscan.com';
+        case 80001: return 'https://mumbai.polygonscan.com';
+        default: return 'https://etherscan.io';
+      }
+    }
+
+    connectBtn.addEventListener('click', connect);
+    mintBtn.addEventListener('click', mint);
+
+    // Auto-fill price input from default config
+    priceInput.value = MINT_PRICE_ETH_DEFAULT || '0.05';
+  </script>
+</body>
+</html>
